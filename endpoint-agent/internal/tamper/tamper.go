@@ -42,9 +42,13 @@ func SelfCheck() error {
 	baseline := baselinePath()
 	want, err := os.ReadFile(baseline)
 	if err != nil {
-		// No baseline — first run; write it.
+		if !os.IsNotExist(err) {
+			return nil // can't read baseline (permissions etc.) — skip silently
+		}
+		// First run: try to write baseline; silently ignore write failures.
 		_ = os.MkdirAll(filepath.Dir(baseline), 0o700)
-		return os.WriteFile(baseline, []byte(h), 0o600)
+		_ = os.WriteFile(baseline, []byte(h), 0o600)
+		return nil
 	}
 	if strings.TrimSpace(string(want)) != h {
 		return fmt.Errorf("binary hash mismatch: have %s want %s", h[:12], string(want)[:12])

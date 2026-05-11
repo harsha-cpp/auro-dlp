@@ -22,8 +22,10 @@ import (
 	"github.com/auro/auro-dlp/endpoint-agent/internal/audit"
 	"github.com/auro/auro-dlp/endpoint-agent/internal/config"
 	"github.com/auro/auro-dlp/endpoint-agent/internal/detector"
+	"github.com/auro/auro-dlp/endpoint-agent/internal/mlinfer"
 	"github.com/auro/auro-dlp/endpoint-agent/internal/policy"
 	"github.com/auro/auro-dlp/endpoint-agent/internal/tamper"
+	"github.com/auro/auro-dlp/endpoint-agent/internal/upstream"
 )
 
 const Version = "1.0.0"
@@ -47,8 +49,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
+	if err := cfg.EnsureDataDir(); err != nil {
+		log.Fatalf("data dir: %v", err)
+	}
 
-	det, err := detector.New(cfg.DetectorConfigPath())
+	scorer := mlinfer.NewStubScorer()
+	det, err := detector.New(cfg.DetectorConfigPath(), detector.WithScorer(scorer))
 	if err != nil {
 		log.Fatalf("detector: %v", err)
 	}
@@ -60,6 +66,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("audit: %v", err)
 	}
+
+	up := upstream.New(cfg.PolicyServerURL, cfg.EndpointID, Version)
 
 	// CLI single-shot mode (useful for tests and triage)
 	if *runOnce != "" {
@@ -79,6 +87,7 @@ func main() {
 		Policy:   pol,
 		Audit:    aud,
 		Version:  Version,
+		Upstream: up,
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -90,6 +99,10 @@ func main() {
 			log.Fatalf("server: %v", err)
 		}
 	}()
+
+	// Upstream: heartbeats + incident forwarding
+	go up.HeartbeatLoop(ctx, pol.Version)
+	go up.WorkerLoop(ctx)
 
 	// Periodic policy refresh
 	go pol.RefreshLoop(ctx, cfg.PolicyServerURL, 15*time.Minute)

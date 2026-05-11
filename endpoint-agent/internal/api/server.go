@@ -11,8 +11,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -23,31 +26,36 @@ import (
 	"github.com/auro/auro-dlp/endpoint-agent/internal/ocr"
 	"github.com/auro/auro-dlp/endpoint-agent/internal/parser"
 	"github.com/auro/auro-dlp/endpoint-agent/internal/policy"
+	"github.com/auro/auro-dlp/endpoint-agent/internal/upstream"
 	"github.com/google/uuid"
 )
 
 type Options struct {
-	Listen   string
-	Insecure bool
-	Detector *detector.Detector
-	Policy   *policy.Engine
-	Audit    *audit.Logger
-	Version  string
-	CertPath string
-	KeyPath  string
-	ClientCA string
+	Listen      string
+	Insecure    bool
+	Detector    *detector.Detector
+	Policy      *policy.Engine
+	Audit       *audit.Logger
+	Version     string
+	CertPath    string
+	KeyPath     string
+	ClientCA    string
+	Upstream    *upstream.Client
+	ExtensionID string // chrome extension ID for CORS pinning
 }
 
 type Server struct {
-	opts Options
-	mux  *http.ServeMux
-	srv  *http.Server
-	mu   sync.Mutex
+	opts          Options
+	mux           *http.ServeMux
+	srv           *http.Server
+	mu            sync.Mutex
+	overrideMu    sync.Mutex
+	overrideCache map[string]time.Time // debounce key -> last attempt
 }
 
 func NewServer(o Options) *Server {
 	mux := http.NewServeMux()
-	s := &Server{opts: o, mux: mux}
+	s := &Server{opts: o, mux: mux, overrideCache: make(map[string]time.Time)}
 	mux.HandleFunc("/v1/healthz", s.handleHealth)
 	mux.HandleFunc("/v1/inspect", s.handleInspect)
 	mux.HandleFunc("/v1/inspect-file", s.handleInspectFile)
@@ -59,7 +67,7 @@ func NewServer(o Options) *Server {
 func (s *Server) Start(ctx context.Context) error {
 	srv := &http.Server{
 		Addr:              s.opts.Listen,
-		Handler:           withMiddleware(s.mux),
+		Handler:           withMiddleware(s.mux, s.opts.ExtensionID),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      45 * time.Second,
@@ -131,6 +139,7 @@ func (s *Server) handleInspect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req inspectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad json", http.StatusBadRequest)
@@ -195,7 +204,6 @@ func (s *Server) handleInspect(w http.ResponseWriter, r *http.Request) {
 		WarningMessage: verdict.WarningMessage,
 	}
 
-	// Audit (counts only, never raw content).
 	if s.opts.Audit != nil {
 		ruleIDs := make([]string, 0, len(combined.Matches))
 		counts := make([]int, 0, len(combined.Matches))
@@ -212,6 +220,10 @@ func (s *Server) handleInspect(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	if s.opts.Upstream != nil && verdict.Verdict != "ALLOW" {
+		go s.opts.Upstream.ForwardIncident(r.Context(), resp)
+	}
+
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -220,6 +232,15 @@ func (s *Server) handleInspectFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 100<<20) // 100 MiB
+
+	contentType := r.Header.Get("Content-Type")
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		s.handleInspectFileMultipart(w, r)
+		return
+	}
+	// Legacy JSON path
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	type req struct {
 		Path string `json:"path"`
 	}
@@ -242,11 +263,66 @@ func (s *Server) handleInspectFile(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleInspectFileMultipart(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(100 << 20); err != nil {
+		http.Error(w, "multipart parse error", http.StatusBadRequest)
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "missing 'file' field", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	tmp, err := os.CreateTemp("", "auro-inspect-*"+ext)
+	if err != nil {
+		http.Error(w, "temp file error", http.StatusInternalServerError)
+		return
+	}
+	defer os.Remove(tmp.Name())
+	defer tmp.Close()
+
+	if _, err := io.Copy(tmp, io.LimitReader(file, 100<<20)); err != nil {
+		http.Error(w, "file write error", http.StatusInternalServerError)
+		return
+	}
+	tmp.Close()
+
+	text, err := parser.Extract(tmp.Name())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("extract: %v", err), http.StatusBadRequest)
+		return
+	}
+	res := s.opts.Detector.InspectText(text)
+	verdict := s.opts.Policy.Evaluate(res)
+	id := uuid.NewString()
+
+	resp := inspectResponse{
+		IncidentID:     id,
+		Verdict:        verdict.Verdict,
+		Risk:           res.Risk,
+		Matches:        res.Matches,
+		Categories:     res.Categories,
+		Context:        map[string]float64{"dictionary_hits": float64(res.DictionaryHits), "ml_signal": res.MLSignal},
+		PolicyVersion:  verdict.PolicyVersion,
+		WarningMessage: verdict.WarningMessage,
+	}
+
+	if s.opts.Upstream != nil && verdict.Verdict != "ALLOW" {
+		go s.opts.Upstream.ForwardIncident(r.Context(), resp)
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
 func (s *Server) handleOverride(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	type req struct {
 		IncidentID string `json:"incident_id"`
 		TOTP       string `json:"totp"`
@@ -257,13 +333,34 @@ func (s *Server) handleOverride(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad json", http.StatusBadRequest)
 		return
 	}
-	// In production, the agent forwards the (incident_id, TOTP) to the
-	// policy server which validates it (one-time, 30 s window). Here we
-	// stub-accept any 6-digit number and audit it.
-	if len(rq.TOTP) != 6 {
+	if len(rq.TOTP) != 6 || !isAllDigits(rq.TOTP) {
 		writeJSON(w, http.StatusOK, map[string]any{"approved": false, "reason": "invalid_totp"})
 		return
 	}
+
+	// 1-second debounce per (incidentID, totp) to slow brute-force
+	debounceKey := rq.IncidentID + ":" + rq.TOTP
+	s.overrideMu.Lock()
+	if last, ok := s.overrideCache[debounceKey]; ok && time.Since(last) < time.Second {
+		s.overrideMu.Unlock()
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{"approved": false, "reason": "rate_limited"})
+		return
+	}
+	s.overrideCache[debounceKey] = time.Now()
+	s.overrideMu.Unlock()
+
+	if s.opts.Upstream != nil {
+		approved, err := s.opts.Upstream.VerifyOverride(r.Context(), rq.IncidentID, rq.TOTP)
+		if err != nil || !approved {
+			reason := "server_rejected"
+			if err != nil {
+				reason = err.Error()
+			}
+			writeJSON(w, http.StatusForbidden, map[string]any{"approved": false, "reason": reason})
+			return
+		}
+	}
+
 	overrideID := uuid.NewString()
 	if s.opts.Audit != nil {
 		_ = s.opts.Audit.Write(audit.Record{
@@ -272,32 +369,55 @@ func (s *Server) handleOverride(w http.ResponseWriter, r *http.Request) {
 			OverrideID: overrideID,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"approved": true, "override_id": overrideID})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"approved":       true,
+		"incident_id":    rq.IncidentID,
+		"policy_version": s.opts.Policy.Version(),
+	})
+}
+
+func isAllDigits(s string) bool {
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // ----- middleware -----
 
-func withMiddleware(h http.Handler) http.Handler {
+func withMiddleware(h http.Handler, extensionID string) http.Handler {
+	allowedOrigin := ""
+	if extensionID != "" {
+		allowedOrigin = "chrome-extension://" + extensionID
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("api %s %s origin=%q remote=%s", r.Method, r.URL.Path, r.Header.Get("Origin"), r.RemoteAddr)
 		w.Header().Set("X-AURO-DLP", "1")
 		w.Header().Set("Cache-Control", "no-store")
 
-		// Loopback only — extra defense even if someone re-binds.
-		if !strings.HasPrefix(r.RemoteAddr, "127.0.0.1") && !strings.HasPrefix(r.RemoteAddr, "[::1]") {
+		// Loopback only
+		host, _, _ := net.SplitHostPort(r.RemoteAddr)
+		ip := net.ParseIP(host)
+		if ip == nil || !ip.IsLoopback() {
 			http.Error(w, "loopback only", http.StatusForbidden)
 			return
 		}
 
-		// CORS: only chrome-extension:// origins are accepted. We bind to
-		// loopback only, so reflecting the extension origin is safe; the
-		// listening socket itself is the real perimeter.
-		if origin := r.Header.Get("Origin"); strings.HasPrefix(origin, "chrome-extension://") {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-			w.Header().Set("Access-Control-Max-Age", "600")
+		// CORS: pin to configured extension ID, or accept any chrome-extension:// in dev
+		origin := r.Header.Get("Origin")
+		if strings.HasPrefix(origin, "chrome-extension://") {
+			if allowedOrigin == "" || origin == allowedOrigin {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Vary", "Origin")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+				w.Header().Set("Access-Control-Max-Age", "600")
+			} else {
+				http.Error(w, "origin not allowed", http.StatusForbidden)
+				return
+			}
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

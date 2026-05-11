@@ -53,12 +53,27 @@ func (c *Config) DetectorConfigPath() string {
 }
 
 func (c *Config) AuditPath() string {
-	return filepath.Join(c.DataDir, "audit.ndjson.enc")
+	return filepath.Join(c.DataDir, "audit.ndjson")
+}
+
+func (c *Config) EnsureDataDir() error {
+	if err := os.MkdirAll(c.DataDir, 0o750); err != nil {
+		fallback, cacheErr := os.UserCacheDir()
+		if cacheErr != nil {
+			return err
+		}
+		c.DataDir = filepath.Join(fallback, "auro-dlp")
+		return os.MkdirAll(c.DataDir, 0o750)
+	}
+	return nil
 }
 
 func defaultDataDir() string {
 	if runtime.GOOS == "windows" {
 		return filepath.Join(os.Getenv("ProgramData"), "AURO-DLP")
+	}
+	if d, err := os.UserCacheDir(); err == nil {
+		return filepath.Join(d, "auro-dlp")
 	}
 	return "/var/lib/auro-dlp"
 }

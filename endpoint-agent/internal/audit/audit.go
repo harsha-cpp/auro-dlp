@@ -1,5 +1,5 @@
-// Package audit writes append-only encrypted incident records to disk and
-// (best-effort) forwards them to the central server.
+// Package audit writes append-only tamper-evident (HMAC-chained NDJSON)
+// incident records to disk and (best-effort) forwards them to the central server.
 //
 // On-disk format: NDJSON, each line is a JSON envelope with fields:
 //
