@@ -9,19 +9,19 @@ package parser
 
 import (
 	"archive/zip"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/ledongthuc/pdf"
 )
 
-// Backend is anything that can extract text from a file.
 type Backend func(path string) (string, error)
 
-// Backends keyed by lowercase extension. Initialized in init() to break the
-// readZIP -> Backends -> readZIP initialization cycle.
 var Backends map[string]Backend
 
 func init() {
@@ -37,19 +37,21 @@ func init() {
 		".zip":  readZIP,
 		".xml":  readPlain,
 		".json": readPlain,
-		// PDFs / Office files / images are populated by the full build
-		// which links unipdf, unioffice, excelize, and gosseract.
+		".docx": readDOCX,
+		".pptx": readPPTX,
+		".xlsx": readXLSX,
+		".pdf":  readPDF,
 	}
 }
 
 const (
-	maxFileSize = 50 * 1024 * 1024 // 50 MB cap on a single file
-	maxZipDepth = 3
+	maxFileSize       = 100 * 1024 * 1024 // 100 MiB
+	maxDecompressed   = 500 * 1024 * 1024 // 500 MiB
+	maxZipDepth       = 3
 )
 
-// Extract returns plain text. Unknown file types return ("", ErrUnsupported)
-// — the caller can decide whether to apply policy `inspect_unknown=BLOCK`.
 var ErrUnsupported = errors.New("unsupported file type")
+var ErrEncrypted = errors.New("file is encrypted")
 
 func Extract(path string) (string, error) {
 	st, err := os.Stat(path)
@@ -59,12 +61,31 @@ func Extract(path string) (string, error) {
 	if st.Size() > maxFileSize {
 		return "", fmt.Errorf("file too large: %d bytes", st.Size())
 	}
+	// OLE encryption detection (Office binary formats)
+	if isOLEEncrypted(path) {
+		return "", ErrEncrypted
+	}
 	ext := strings.ToLower(filepath.Ext(path))
 	be, ok := Backends[ext]
 	if !ok {
 		return "", ErrUnsupported
 	}
 	return be(path)
+}
+
+func isOLEEncrypted(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	magic := make([]byte, 8)
+	if _, err := io.ReadFull(f, magic); err != nil {
+		return false
+	}
+	// OLE2 magic: D0 CF 11 E0 A1 B1 1A E1
+	return magic[0] == 0xD0 && magic[1] == 0xCF && magic[2] == 0x11 && magic[3] == 0xE0 &&
+		magic[4] == 0xA1 && magic[5] == 0xB1 && magic[6] == 0x1A && magic[7] == 0xE1
 }
 
 func readPlain(path string) (string, error) {
@@ -75,7 +96,6 @@ func readPlain(path string) (string, error) {
 	return string(b), nil
 }
 
-// readHTML strips tags. Naive but adequate as a pre-filter for regex hits.
 func readHTML(path string) (string, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -134,7 +154,6 @@ func stripTags(s string) string {
 	return out.String()
 }
 
-// readZIP recursively concatenates inner text up to maxZipDepth.
 func readZIP(path string) (string, error) {
 	return readZIPDepth(path, 0)
 }
@@ -149,12 +168,11 @@ func readZIPDepth(path string, depth int) (string, error) {
 	}
 	defer zr.Close()
 	var out strings.Builder
+	totalDecompressed := 0
 	for _, f := range zr.File {
 		if f.FileInfo().IsDir() {
 			continue
 		}
-		// Treat password-protected entries as risk=high in the caller; here we
-		// detect via the encryption flag bit in the local file header (bit 0).
 		if f.Flags&0x1 != 0 {
 			out.WriteString("[encrypted-entry: ")
 			out.WriteString(f.Name)
@@ -176,7 +194,8 @@ func readZIPDepth(path string, depth int) (string, error) {
 			rc.Close()
 			continue
 		}
-		_, _ = io.Copy(tmp, rc)
+		n, _ := io.Copy(tmp, io.LimitReader(rc, int64(maxDecompressed-totalDecompressed)))
+		totalDecompressed += int(n)
 		tmp.Close()
 		rc.Close()
 		text, err := be(tmp.Name())
@@ -185,7 +204,136 @@ func readZIPDepth(path string, depth int) (string, error) {
 			out.WriteString(text)
 			out.WriteByte('\n')
 		}
+		if totalDecompressed >= maxDecompressed {
+			break
+		}
 	}
-	_ = depth
 	return out.String(), nil
+}
+
+// readDOCX extracts text from <w:t> elements in word/document.xml.
+func readDOCX(path string) (string, error) {
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		return "", err
+	}
+	defer zr.Close()
+	var out strings.Builder
+	for _, f := range zr.File {
+		if f.Name != "word/document.xml" {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return "", err
+		}
+		text := extractXMLText(io.LimitReader(rc, int64(maxDecompressed)), "t")
+		rc.Close()
+		out.WriteString(text)
+	}
+	return out.String(), nil
+}
+
+// readPPTX extracts text from <a:t> elements in ppt/slides/slide*.xml.
+func readPPTX(path string) (string, error) {
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		return "", err
+	}
+	defer zr.Close()
+	var out strings.Builder
+	for _, f := range zr.File {
+		if !strings.HasPrefix(f.Name, "ppt/slides/slide") || !strings.HasSuffix(f.Name, ".xml") {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
+		text := extractXMLText(io.LimitReader(rc, int64(maxDecompressed)), "t")
+		rc.Close()
+		out.WriteString(text)
+		out.WriteByte('\n')
+	}
+	return out.String(), nil
+}
+
+// readXLSX extracts text from xl/sharedStrings.xml <t> elements.
+func readXLSX(path string) (string, error) {
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		return "", err
+	}
+	defer zr.Close()
+	var out strings.Builder
+	for _, f := range zr.File {
+		if f.Name != "xl/sharedStrings.xml" {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return "", err
+		}
+		text := extractXMLText(io.LimitReader(rc, int64(maxDecompressed)), "t")
+		rc.Close()
+		out.WriteString(text)
+	}
+	return out.String(), nil
+}
+
+func extractXMLText(r io.Reader, localName string) string {
+	dec := xml.NewDecoder(r)
+	var out strings.Builder
+	var inElement bool
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			break
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			inElement = t.Name.Local == localName
+		case xml.EndElement:
+			if t.Name.Local == localName {
+				inElement = false
+				out.WriteByte(' ')
+			}
+		case xml.CharData:
+			if inElement {
+				out.Write(t)
+			}
+		}
+	}
+	return out.String()
+}
+
+// readPDF extracts plain text from PDF files using a pure-Go parser.
+func readPDF(path string) (string, error) {
+	f, r, err := pdf.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	var b strings.Builder
+	npages := r.NumPage()
+	if npages > 200 {
+		npages = 200 // cap pages to limit DoS
+	}
+	for i := 1; i <= npages; i++ {
+		p := r.Page(i)
+		if p.V.IsNull() {
+			continue
+		}
+		text, err := p.GetPlainText(nil)
+		if err != nil {
+			continue
+		}
+		b.WriteString(text)
+		b.WriteRune('\n')
+		if b.Len() > 50*1024*1024 {
+			break
+		}
+	}
+	return b.String(), nil
 }
