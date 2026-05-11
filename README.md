@@ -57,21 +57,6 @@ make fetch-model          # Downloads + quantizes indicv2 (~280MB)
 make fetch-model-fallback # Smaller fallback (~70MB)
 ```
 
-## v1 Scope
-
-- HTTP loopback (mTLS deferred to v1.1)
-- Regex + dictionary detection (ML scoring when model present)
-- SQLite storage (Postgres-portable)
-- Policy distribution via signed YAML
-- Incident audit trail + SIEM forwarding stub
-
-### Deferred to v1.1
-
-- mTLS agent enrollment
-- TPM attestation
-- SIEM webhook delivery
-- Full ML model training pipeline
-- Windows MSI installer
 
 ## Detection
 
