@@ -1,0 +1,5 @@
+---
+expected_verdict: BLOCK
+expected_rules: ["IN.AADHAAR", "PHI.CLINICAL"]
+---
+रोगी का आधार: 786578091349. निदान: मधुमेह. दवाई: Atorvastatin 10mg.
