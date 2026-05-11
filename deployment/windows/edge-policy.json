@@ -1,0 +1,28 @@
+{
+  "_comment": "Microsoft Edge equivalent of chrome-policy.json. Same extension ID; Edge accepts the Chrome Web Store packaging. Apply via GPO under Administrative Templates > Microsoft Edge.",
+
+  "ExtensionInstallForcelist": [
+    "auro-dlp-extension-id-placeholder;https://dlp.hospital.local:8443/extension/updates.xml"
+  ],
+
+  "ExtensionInstallBlocklist": ["*"],
+
+  "ExtensionAllowedTypes": ["extension"],
+
+  "InPrivateModeAvailability": 1,
+
+  "DeveloperToolsAvailability": 2,
+
+  "ExtensionSettings": {
+    "auro-dlp-extension-id-placeholder": {
+      "installation_mode": "force_installed",
+      "update_url": "https://dlp.hospital.local:8443/extension/updates.xml",
+      "blocked_install_message": "AURO-DLP is required by hospital policy and cannot be removed.",
+      "runtime_allowed_hosts": ["*://mail.google.com", "*://*.google.com"],
+      "minimum_version_required": "1.0.0"
+    },
+    "*": {
+      "installation_mode": "blocked"
+    }
+  }
+}

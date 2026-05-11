@@ -1,0 +1,26 @@
+# AURO-DLP — default policy bundle.
+# In production this is fetched from the policy server (signed).
+version: "default-1.0"
+
+# Verdict thresholds. See docs/DETECTION.md for the scoring formula.
+warn_threshold: 0.30
+block_threshold: 0.65
+
+# Rules whose presence forces a non-overridable BLOCK.
+hard_block_rules:
+  - IN.AADHAAR
+
+# Categories whose presence forces a non-overridable BLOCK (broader than rules).
+hard_block_categories: []
+
+messages:
+  WARN:  "This message contains content that looks like sensitive patient data. Send only if absolutely necessary."
+  BLOCK: "This message contains protected patient information. Sending externally is blocked by hospital policy."
+  HARD:  "Aadhaar / regulated identifier detected — this transmission is blocked and cannot be overridden by you."
+
+override_allowed:
+  WARN: true
+  BLOCK: true
+
+# Per-rule weight overrides; missing rules use the built-in weight.
+rule_weights: {}

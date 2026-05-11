@@ -1,0 +1,30 @@
+{
+  "name": "auro-dlp-policy-server",
+  "version": "1.0.0",
+  "description": "AURO-DLP central policy server, incident ingest, RBAC, SIEM forwarder",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "migrate": "node src/db/migrate.js",
+    "seed": "node src/db/seed.js",
+    "gen-keys": "node scripts/gen-signing-key.js",
+    "test": "node --test src/**/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "better-sqlite3": "^11.0.0",
+    "bcrypt": "^5.1.1",
+    "jsonwebtoken": "^9.0.2",
+    "yaml": "^2.4.5",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  }
+}

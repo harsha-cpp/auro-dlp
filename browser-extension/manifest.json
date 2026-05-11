@@ -1,0 +1,69 @@
+{
+  "manifest_version": 3,
+  "name": "AURO-DLP — Hospital Data Loss Prevention",
+  "short_name": "AURO-DLP",
+  "version": "1.0.0",
+  "description": "Inspects Gmail compose actions and prevents PHI/PII exfiltration. Force-installed by hospital IT. Do not remove.",
+  "minimum_chrome_version": "120",
+  "default_locale": "en",
+  "permissions": [
+    "storage",
+    "alarms",
+    "scripting",
+    "downloads",
+    "notifications",
+    "clipboardRead"
+  ],
+  "host_permissions": [
+    "https://mail.google.com/*",
+    "http://127.0.0.1:7443/*",
+    "https://127.0.0.1:7443/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://mail.google.com/*"],
+      "js": ["content/gmail-xhr-patch.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false
+    },
+    {
+      "matches": ["https://mail.google.com/*"],
+      "js": ["content/gmail-monitor.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "options_page": "options/options.html",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["content/warning-modal.css", "content/warning-modal.html"],
+      "matches": ["https://mail.google.com/*"]
+    }
+  ],
+  "storage": {
+    "managed_schema": "managed_schema.json"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' ws://127.0.0.1:7443 http://127.0.0.1:7443 wss://127.0.0.1:7443 https://127.0.0.1:7443"
+  }
+}

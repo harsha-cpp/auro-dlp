@@ -1,0 +1,19 @@
+# AURO-DLP — extra detection rules layered on top of the built-ins.
+# Operators add hospital-specific MRN prefixes here without rebuilding the agent.
+
+rules:
+  - id: "MED.MRN.AURO"
+    category: "PHI"
+    pattern: '\bAURO-?\d{6,10}\b'        # hospital-specific MRN format
+    weight: 1.6
+
+  - id: "INS.STAR-HEALTH"
+    category: "INS"
+    pattern: '(?i)\bSTAR\s?HEALTH\s?(?:POL|POLICY)?\s?[:#-]?\s?[A-Z0-9]{8,16}\b'
+    weight: 1.4
+
+dictionaries:
+  - "OPD"
+  - "IPD"
+  - "MLC"
+  - "consultation note"

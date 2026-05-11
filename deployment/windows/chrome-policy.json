@@ -1,0 +1,38 @@
+{
+  "_comment": "Chrome Enterprise policy fragment. Apply via GPO (Computer Configuration > Administrative Templates > Google > Google Chrome) or by deploying to %ProgramFiles%\\Google\\Chrome\\Application\\master_preferences. The extension ID below is the production AURO-DLP MV3 extension; replace with the value printed by `chrome://extensions` in developer mode for staging.",
+
+  "ExtensionInstallForcelist": [
+    "auro-dlp-extension-id-placeholder;https://dlp.hospital.local:8443/extension/updates.xml"
+  ],
+
+  "ExtensionInstallBlocklist": ["*"],
+
+  "ExtensionAllowedTypes": ["extension"],
+
+  "BrowserSwitcherEnabled": false,
+
+  "DefaultBrowserSettingEnabled": true,
+
+  "IncognitoModeAvailability": 1,
+
+  "DeveloperToolsAvailability": 2,
+
+  "URLBlocklist": [
+    "chrome://flags/*",
+    "chrome://extensions-internals/*"
+  ],
+
+  "ExtensionSettings": {
+    "auro-dlp-extension-id-placeholder": {
+      "installation_mode": "force_installed",
+      "update_url": "https://dlp.hospital.local:8443/extension/updates.xml",
+      "blocked_install_message": "AURO-DLP is required by hospital policy and cannot be removed.",
+      "runtime_blocked_hosts": [],
+      "runtime_allowed_hosts": ["*://mail.google.com", "*://*.google.com"],
+      "minimum_version_required": "1.0.0"
+    },
+    "*": {
+      "installation_mode": "blocked"
+    }
+  }
+}

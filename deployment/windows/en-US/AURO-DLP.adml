@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+                           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                           revision="1.0" schemaVersion="1.0">
+  <displayName>AURO-DLP</displayName>
+  <description>AURO-DLP endpoint and browser policy</description>
+  <resources>
+    <stringTable>
+      <string id="AuroDlpCat">AURO-DLP</string>
+
+      <string id="ServerUrl">Policy server URL</string>
+      <string id="ServerUrl_Help">HTTPS endpoint of the AURO-DLP policy server, e.g. https://dlp.hospital.local:8443. The agent will fetch signed policy bundles and post incidents to this address.</string>
+
+      <string id="EnrollmentToken">Enrollment token</string>
+      <string id="EnrollmentToken_Help">One-time bootstrap token issued by the policy server. Used the first time the agent runs, after which a per-endpoint TPM-bound certificate replaces it.</string>
+
+      <string id="StrictMode">Enable strict mode</string>
+      <string id="StrictMode_Help">When enabled, the agent fails closed: if it cannot reach the policy server within the staleness window, it blocks all sends instead of falling back to the cached policy. Recommended for clinical workstations.</string>
+
+      <string id="ScreenshotProtection">Block screen capture on Gmail compose</string>
+      <string id="ScreenshotProtection_Help">Sets SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE) on browser windows that are composing Gmail, so screen-recording tools (Snipping Tool, OBS, Teams capture, Greenshot) see only black. Some accessibility tools may also be affected.</string>
+
+      <string id="ExtensionId">Browser extension ID</string>
+      <string id="ExtensionId_Help">The Chrome/Edge extension ID for the AURO-DLP MV3 extension. Used both for force-install and to detect mismatched / sideloaded versions.</string>
+    </stringTable>
+  </resources>
+</policyDefinitionResources>

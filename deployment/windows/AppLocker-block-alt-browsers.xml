@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AppLocker policy fragment that prevents users from running browsers other
+  than Chrome and Edge. Without this, a user could simply install Firefox
+  / Brave / Tor and bypass the AURO-DLP extension entirely.
+
+  Apply via Group Policy:
+    Computer Configuration > Windows Settings > Security Settings >
+      Application Control Policies > AppLocker > Import policy.
+
+  Make sure the AppLocker service ('Application Identity') is set to
+  Automatic and started — without it, AppLocker rules do not enforce.
+-->
+<AppLockerPolicy Version="1">
+  <RuleCollection Type="Exe" EnforcementMode="Enabled">
+    <FilePathRule Id="auro-allow-chrome" Name="Allow Google Chrome" Description="Permit Chrome installs from Program Files" UserOrGroupSid="S-1-1-0" Action="Allow">
+      <Conditions>
+        <FilePathCondition Path="%PROGRAMFILES%\Google\Chrome\Application\chrome.exe" />
+      </Conditions>
+    </FilePathRule>
+    <FilePathRule Id="auro-allow-edge" Name="Allow Microsoft Edge" Description="Permit Edge from Program Files (x86)" UserOrGroupSid="S-1-1-0" Action="Allow">
+      <Conditions>
+        <FilePathCondition Path="%PROGRAMFILES%\Microsoft\Edge\Application\msedge.exe" />
+      </Conditions>
+    </FilePathRule>
+    <FilePathRule Id="auro-allow-default" Name="Default — Program Files" Description="Allow exes inside Program Files" UserOrGroupSid="S-1-5-32-545" Action="Allow">
+      <Conditions>
+        <FilePathCondition Path="%PROGRAMFILES%\*" />
+      </Conditions>
+    </FilePathRule>
+    <FilePathRule Id="auro-allow-windows" Name="Default — Windows" Description="Allow exes inside %WINDIR%" UserOrGroupSid="S-1-5-32-545" Action="Allow">
+      <Conditions>
+        <FilePathCondition Path="%WINDIR%\*" />
+      </Conditions>
+    </FilePathRule>
+    <FilePublisherRule Id="auro-block-firefox" Name="Block Mozilla Firefox" Description="Block all Firefox executables" UserOrGroupSid="S-1-1-0" Action="Deny">
+      <Conditions>
+        <FilePublisherCondition PublisherName="O=MOZILLA CORPORATION, L=MOUNTAIN VIEW, S=CALIFORNIA, C=US" ProductName="*" BinaryName="*">
+          <BinaryVersionRange LowSection="*" HighSection="*" />
+        </FilePublisherCondition>
+      </Conditions>
+    </FilePublisherRule>
+    <FilePublisherRule Id="auro-block-brave" Name="Block Brave" Description="Block all Brave executables" UserOrGroupSid="S-1-1-0" Action="Deny">
+      <Conditions>
+        <FilePublisherCondition PublisherName="O=BRAVE SOFTWARE, INC., L=SAN FRANCISCO, S=CALIFORNIA, C=US" ProductName="*" BinaryName="*">
+          <BinaryVersionRange LowSection="*" HighSection="*" />
+        </FilePublisherCondition>
+      </Conditions>
+    </FilePublisherRule>
+    <FilePublisherRule Id="auro-block-opera" Name="Block Opera" Description="Block Opera browsers" UserOrGroupSid="S-1-1-0" Action="Deny">
+      <Conditions>
+        <FilePublisherCondition PublisherName="O=OPERA NORWAY AS*" ProductName="*" BinaryName="*">
+          <BinaryVersionRange LowSection="*" HighSection="*" />
+        </FilePublisherCondition>
+      </Conditions>
+    </FilePublisherRule>
+    <FilePathRule Id="auro-block-tor" Name="Block Tor Browser" Description="Block Tor by file name (often portable)" UserOrGroupSid="S-1-1-0" Action="Deny">
+      <Conditions>
+        <FilePathCondition Path="*\tor-browser.exe" />
+      </Conditions>
+    </FilePathRule>
+    <FilePathRule Id="auro-block-firefox-portable" Name="Block portable Firefox" UserOrGroupSid="S-1-1-0" Action="Deny">
+      <Conditions>
+        <FilePathCondition Path="*\firefox.exe" />
+      </Conditions>
+    </FilePathRule>
+  </RuleCollection>
+</AppLockerPolicy>

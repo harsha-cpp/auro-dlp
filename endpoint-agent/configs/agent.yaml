@@ -1,0 +1,10 @@
+# AURO-DLP — Endpoint Agent default configuration
+# Deployed to %ProgramData%\AURO-DLP\agent.yaml on Windows
+# or /etc/auro-dlp/agent.yaml on Linux.
+
+endpoint_id: "WS-DEV-LOCAL"          # set by enrollment in production
+policy_server_url: "https://policy.hospital.local:8443/api/v1"
+policy_public_key: ""                # base64 ed25519 public key, populated at install
+data_dir: ""                          # blank = OS default
+log_level: "info"
+strict_mode: true                     # block when agent unreachable / OCR unavailable

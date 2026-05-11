@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "properties": {
+    "agentEndpoint": {
+      "type": "string",
+      "description": "Local agent WSS endpoint, e.g. wss://127.0.0.1:7443"
+    },
+    "policyServerUrl": {
+      "type": "string",
+      "description": "Central policy server base URL"
+    },
+    "endpointId": {
+      "type": "string",
+      "description": "Endpoint identifier issued at enrollment"
+    },
+    "logLevel": {
+      "type": "string",
+      "enum": ["debug", "info", "warn", "error"]
+    },
+    "strictMode": {
+      "type": "boolean",
+      "description": "If true, blocks send when agent is unreachable. If false, allows with audit."
+    }
+  }
+}

@@ -1,0 +1,30 @@
+node_modules/
+.DS_Store
+*.DS_Store
+*.log
+*.bak
+*.tmp
+.idea/
+.vscode/
+coverage/
+
+# Vendor directories
+endpoint-agent/vendor/
+
+# Build artefacts
+dist/auro-agent.exe-go-tmp-umask
+dist/auro-agent-linux-amd64-go-tmp-umask
+endpoint-agent/auro-agent
+endpoint-agent/build/windows/auro-agent.exe
+admin-dashboard/dist/
+
+# Local data
+policy-server/auro.dev.sqlite
+policy-server/auro.dev.sqlite-shm
+policy-server/auro.dev.sqlite-wal
+policy-server/test-migrate.sqlite
+policy-server/test-migrate.sqlite-shm
+policy-server/test-migrate.sqlite-wal
+policy-server/.env
+policy-server/SEEDED_CREDENTIALS.txt
+policy-server/models/auro-pii-indicv2/0.1.0/model.onnx

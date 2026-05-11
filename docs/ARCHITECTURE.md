@@ -1,0 +1,195 @@
+# AURO-DLP — Architecture
+
+## 1. Goals & Non-Goals
+
+**Goals**
+
+- Prevent exfiltration of PHI / PII / India-regulated data via Gmail compose without blocking Gmail itself.
+- Inspect: email body, attachments, clipboard pastes, drag-drop, file uploads, embedded images (OCR).
+- Hybrid detection: regex + NER + ML scoring + hospital dictionaries + context.
+- Tamper-resistant Windows endpoint, signed policy distribution, central audit and SIEM.
+- Privacy-by-design: only metadata leaves the endpoint; raw matches stay local under encrypted log.
+
+**Non-Goals (Phase 1)**
+
+- Full MTA-level mail proxy (we trust Google's TLS to the wire; we inspect *pre-send* in the user agent).
+- Mobile (Android/iOS Gmail app) — out of scope, mitigated by Google Admin attachment compliance rules in parallel.
+- Network-layer DLP — complementary, not replaced.
+
+## 2. High-Level Topology
+
+```
+┌──────────────────────────── Hospital LAN ────────────────────────────┐
+│                                                                       │
+│   ┌─────────────────────────────────┐         ┌────────────────────┐  │
+│   │ Windows Endpoint (Doctor / Staff)│  HTTPS │  Policy Server     │  │
+│   │                                  │ ◄────► │  (Node.js)         │  │
+│   │  ┌────────────────────────────┐  │  mTLS  │  ┌──────────────┐  │  │
+│   │  │ Chrome / Edge              │  │        │  │ Postgres     │  │  │
+│   │  │  ┌──────────────────────┐  │  │        │  └──────────────┘  │  │
+│   │  │  │ AURO-DLP Extension   │  │  │        │  ┌──────────────┐  │  │
+│   │  │  │  (MV3, content+SW)   │  │  │        │  │ Signed       │  │  │
+│   │  │  └─────────┬────────────┘  │  │        │  │ Policy Bundle│  │  │
+│   │  └────────────┼───────────────┘  │        │  └──────────────┘  │  │
+│   │  loopback mTLS WSS on 127.0.0.1  │        └─────────┬──────────┘  │
+│   │  ┌─────────────▼──────────────┐  │                  │             │
+│   │  │ Endpoint Agent (Go svc)    │  │                  │             │
+│   │  │  - Detector  - Parser      │  │                  │             │
+│   │  │  - OCR       - Policy cache│  │   ┌──────────────▼──────────┐  │
+│   │  │  - Audit     - Tamper      │  │   │ Admin Dashboard (React) │  │
+│   │  └─────────────┬──────────────┘  │   └─────────────────────────┘  │
+│   │                │                 │                                 │
+│   │     Encrypted  │ audit batches   │   ┌─────────────────────────┐  │
+│   │                └────────────────────►│ SIEM (Splunk/QRadar)    │  │
+│   └─────────────────────────────────┘   └─────────────────────────┘  │
+└───────────────────────────────────────────────────────────────────────┘
+```
+
+## 3. Component Responsibilities
+
+### 3.1 Browser Extension (MV3)
+
+- Content script restricted to `https://mail.google.com/*`.
+- Hooks into Gmail compose using stable role-based selectors (no scraping of message text outside compose box).
+- Intercepts the `Send` button at the capture phase via a delegated event listener; cancels the click if the local agent returns `verdict: BLOCK` or `WARN-no-override`.
+- Captures:
+  - Compose body innerText (only when Send is clicked, never continuously).
+  - File handles dropped or selected for upload (computes SHA-256, sends file path + hash to agent for inspection).
+  - Paste events into compose: ships pasted plain-text to agent for inline detection.
+- Talks to the agent via **localhost mTLS WebSocket** (`wss://127.0.0.1:7443/v1/inspect`) using a per-install client cert provisioned by the GPO installer.
+- Renders modal warning UI (shadow-DOM isolated) listing violation categories — *never* echoes back the matched data.
+- Admin override flow: requires a TOTP code generated by the dashboard; logged with reason.
+- Force-installed via Chrome Enterprise / Edge Group Policy (`ExtensionInstallForcelist`, `ExtensionInstallBlocklist=*`).
+
+### 3.2 Endpoint Agent (Go, Windows service)
+
+- Single binary `auro-agent.exe` running as `LocalSystem` (or dedicated `AURO-DLPSvc` account). Files installed to `%ProgramFiles%\AURO-DLP\` with ACLs preventing user write.
+- Listens on **127.0.0.1:7443** with mTLS. Client cert pinning ties the listener to the extension only.
+- Modules:
+  - `api/` — Gin HTTP + gorilla WebSocket handlers; rate-limited.
+  - `detector/` — regex catalog, NER (spaCy via gRPC sidecar OR onnxruntime), composite scorer, hospital dictionary loader.
+  - `parser/` — PDF (`unipdf`), DOCX (`unioffice`), XLSX (`excelize`), ZIP recursive, RTF, plain text.
+  - `ocr/` — `gosseract` (Tesseract 5) on PNG/JPG/TIFF; PDF rasterized via `pdfcpu`.
+  - `policy/` — Pulls signed YAML bundle from server every 15 min. Signature verified with embedded public key. Atomic replace.
+  - `audit/` — AES-256-GCM encrypted append-only log on disk; remote forwarder with backoff.
+  - `tamper/` — Self-integrity (SHA-256 of binary at launch), service watchdog (a sibling watchdog process restarts the main service if killed), Windows Service `FailureActions` configured to restart, registry hardening.
+  - `update/` — Pulls signed update package, verifies, swaps via Windows Restart Manager.
+  - `nativemsg/` — Optional Chrome Native Messaging bridge as fallback when WSS isn't available.
+
+### 3.3 Detection Pipeline
+
+```
+              ┌────────────────────────────────────────────┐
+              │              INPUT NORMALIZER              │
+              │  text | file-path | image | clipboard      │
+              └─────────────────┬──────────────────────────┘
+                                │
+            ┌───────────────────┼───────────────────┐
+            ▼                   ▼                   ▼
+      ┌──────────┐        ┌──────────┐        ┌──────────┐
+      │ Parser   │        │ OCR      │        │ Plain    │
+      │ PDF/DOCX │        │ Tesseract│        │ Text     │
+      │ XLSX/ZIP │        │          │        │          │
+      └─────┬────┘        └─────┬────┘        └─────┬────┘
+            └────────────┬──────┴───────┬───────────┘
+                         ▼              ▼
+                    ┌─────────────────────────┐
+                    │  TEXT CHUNKER (4 KB)    │
+                    └────────────┬────────────┘
+                                 ▼
+              ┌──────────────────────────────────────┐
+              │           HYBRID DETECTOR            │
+              │ ┌──────────┐ ┌──────────┐ ┌────────┐ │
+              │ │ Regex    │ │ NER      │ │ ML     │ │
+              │ │ catalog  │ │ (spaCy/  │ │ Score  │ │
+              │ │ (Aadhaar │ │ onnx)    │ │ (XGB)  │ │
+              │ │ PAN, MRN │ │          │ │        │ │
+              │ │ ICD…)    │ │          │ │        │ │
+              │ └────┬─────┘ └────┬─────┘ └────┬───┘ │
+              │      └────────────┼────────────┘     │
+              │             Composite scorer         │
+              │             (rule weights + context) │
+              └──────────────────┬───────────────────┘
+                                 ▼
+                       ┌────────────────────┐
+                       │  POLICY EVALUATOR  │  ← signed YAML
+                       │  ALLOW / WARN /    │
+                       │  BLOCK / OVERRIDE  │
+                       └─────────┬──────────┘
+                                 ▼
+                       ┌────────────────────┐
+                       │  AUDIT + RESPONSE  │
+                       └────────────────────┘
+```
+
+### 3.4 Policy Server (Node.js)
+
+- Express + Postgres (SQLite for dev). JWT auth with refresh; RBAC roles:
+  - `admin` — full
+  - `security` — incidents, policy edit, override
+  - `auditor` — read-only audit + incidents
+- Endpoints (see `docs/API.md`):
+  - `GET /api/v1/policies/current` (signed bundle, ETag)
+  - `POST /api/v1/incidents` (agent ingest, mTLS client cert auth)
+  - `GET /api/v1/incidents` (operator)
+  - `POST /api/v1/admin/override` (mints one-time TOTP-style override token)
+  - `POST /api/v1/agents/heartbeat`
+  - `GET /api/v1/audit`
+- SIEM forwarder: configurable HEC (Splunk), syslog (RFC 5424), webhook.
+
+### 3.5 Admin Dashboard (React)
+
+- Vite + React 18 + Tailwind + Recharts.
+- Pages: Login, Incidents, Policy Editor (visual rule builder + raw YAML view), Endpoints, Audit, Settings.
+- Talks to policy server with JWT.
+
+## 4. Data Flow — Send Interception
+
+1. Doctor types/pastes/attaches in Gmail compose.
+2. Doctor clicks **Send**.
+3. Extension intercepts at the capture phase, freezes the click.
+4. Extension snapshots: body innerText + recipients + attachment file paths/hashes + paste-buffer history (last 60 s).
+5. Snapshot is shipped to the agent over WSS.
+6. Agent runs the detection pipeline (parses files, OCRs images, runs regex+NER+ML), evaluates against the active policy.
+7. Verdict returned: `ALLOW` | `WARN(reasons)` | `BLOCK(reasons)`.
+8. Extension renders modal:
+   - `ALLOW` → resumes the click programmatically.
+   - `WARN` → user must check "I understand and take responsibility" and provide a business reason.
+   - `BLOCK` → only path forward is admin override (TOTP from security team).
+9. Outcome + metadata (rule IDs, counts, recipients hash, file hashes — *not the content*) is logged in audit and forwarded to the policy server, then SIEM.
+
+## 5. Threat Model (STRIDE summary)
+
+| Threat | Mitigation |
+|---|---|
+| User uninstalls/disables extension | Force-installed by Group Policy, `ExtensionInstallBlocklist=*`; agent reports missing-companion; dashboard alert. |
+| User kills agent service | Service runs as LocalSystem; watchdog process restarts; Windows `FailureActions`; SCM ACL. |
+| User uses a different browser (Firefox) | Agent denies inspection from non-managed browser; AppLocker/SRP policy blocks unauthorized browsers (sample policy in deployment/). |
+| User uses Gmail mobile/web from personal device | Out of band — mitigated by Google Admin compliance rule (cc:dlp@hospital). |
+| Replay/spoofing of agent over loopback | mTLS with per-install client cert from extension; bound to extension ID. |
+| Tampering with policy file on disk | Policy YAML is Ed25519-signed by the policy server; agent verifies before load. |
+| Exfil via screenshot tool | Detected via foreground-process monitoring (Windows hook for `PrtSc`, `Snipping Tool`, `Snip & Sketch`); policy can warn or log. |
+| Clipboard exfiltration to other apps | Out of scope for this DLP; integrate with Microsoft Purview / Symantec EPC for clipboard-class control across all apps. |
+| Memory disclosure | Go agent — avoids unsafe pointers; sensitive buffers zeroed; binary built with `-trimpath`, `-ldflags="-s -w"`. |
+
+## 6. Privacy & Data Minimization
+
+- Endpoint never transmits raw matched content.
+- Audit record fields: `incident_id`, `endpoint_id`, `user_principal`, `timestamp`, `rule_ids[]`, `match_counts[]`, `attachment_hashes[]`, `recipient_domain_hashes[]`, `verdict`, `override_id?`.
+- Local encrypted log retains masked snippet (e.g. `XXXX-XXXX-1234`) for forensics, accessible only to a security admin via signed reveal-token workflow.
+
+## 7. Performance Budget
+
+| Step | Target | Notes |
+|---|---|---|
+| Body-only inspection | < 80 ms p95 | regex + small NER pass |
+| 5 MB PDF | < 1.2 s p95 | parser + chunk + regex |
+| 1 MB image OCR | < 2.5 s p95 | tesseract eng+hin |
+| Send-button block round-trip | < 250 ms p95 (text only) | UI shows spinner ≥ 200 ms |
+
+## 8. Roadmap
+
+- v1.0 — Windows + Chrome/Edge, regex + Tesseract OCR, signed policy.
+- v1.1 — Linux, ML model (XGBoost on TF-IDF) for sensitivity scoring, Aadhaar Verhoeff validation pre-shipped.
+- v1.2 — Native Messaging fallback, Microsoft Defender for Endpoint connector, EDR-style screenshot detection.
+- v2.0 — Mobile device inspection via Google Workspace Add-on bridge.

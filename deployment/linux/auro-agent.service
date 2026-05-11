@@ -1,0 +1,65 @@
+# /etc/systemd/system/auro-agent.service
+#
+# AURO-DLP endpoint agent — Linux systemd unit.
+# Hardened with the same intent as the Windows tamper protection:
+#   * runs as a dedicated unprivileged user
+#   * read-only file system except for /var/lib/auro-dlp
+#   * private /tmp, no /home, no /root, no kernel modules
+#   * cannot acquire new privileges, cannot ptrace siblings
+#   * restarts on crash with exponential backoff
+
+[Unit]
+Description=AURO-DLP Endpoint Agent
+Documentation=https://dlp.hospital.local/docs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=auro-dlp
+Group=auro-dlp
+ExecStart=/opt/auro-dlp/auro-agent --service --config /etc/auro-dlp/agent.yaml
+Restart=always
+RestartSec=10s
+StartLimitInterval=120
+StartLimitBurst=10
+
+# Stdout/stderr go to the journal — agent additionally writes its own
+# HMAC-chained NDJSON log under /var/lib/auro-dlp/audit.log.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=auro-agent
+
+# --- Hardening ------------------------------------------------------------
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/auro-dlp /var/log/auro-dlp
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# Resource bounds
+LimitNOFILE=65536
+TasksMax=512
+MemoryHigh=512M
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,31 @@
+[Unit]
+Description=AURO-DLP Policy Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=auro-policy
+Group=auro-policy
+WorkingDirectory=/opt/auro-policy-server
+EnvironmentFile=/etc/auro-policy-server/env
+ExecStart=/usr/bin/node /opt/auro-policy-server/src/server.js
+Restart=always
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=auro-policy
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/auro-policy-server
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

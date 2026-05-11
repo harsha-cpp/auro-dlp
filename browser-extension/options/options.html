@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"/><title>AURO-DLP — Options</title>
+<style>
+body { font-family: Inter, system-ui, sans-serif; max-width:640px; margin:32px auto; color:#0f172a;}
+h1 { font-size:18px; margin:0 0 6px;} .sub { color:#64748b; margin:0 0 16px;}
+.row { display:flex; gap:10px; margin:10px 0; align-items:center;}
+input[type=text] { flex:1; padding:8px 10px; border:1px solid #cbd5e1; border-radius:8px;}
+.note { background:#f1f5f9; padding:10px 12px; border-radius:8px; font-size:13px; color:#475569;}
+button { padding:8px 14px; border-radius:8px; background:#0f172a; color:#fff; border:0; cursor:pointer; }
+</style></head>
+<body>
+<h1>AURO-DLP — Options</h1>
+<p class="sub">Most settings are managed by your IT administrator. Only diagnostic switches are user-editable.</p>
+<div class="note">Endpoint ID: <b id="eid">—</b><br/>Agent: <b id="agt">—</b><br/>Policy version: <b id="ver">—</b></div>
+<div class="row"><label><input type="checkbox" id="dbg"/> Verbose logging (debug)</label></div>
+<button id="save">Save</button>
+<script>
+(async () => {
+  const cfg = (await new Promise(r => chrome.runtime.sendMessage({ type:'getConfig' }, r)))?.config || {};
+  document.getElementById('eid').textContent = cfg.endpointId || '(unenrolled)';
+  document.getElementById('agt').textContent = cfg.agentEndpoint || '(unset)';
+  const local = await new Promise(r => chrome.storage.local.get(['logLevel'], r));
+  document.getElementById('dbg').checked = local.logLevel === 'debug';
+  document.getElementById('save').addEventListener('click', async () => {
+    const lvl = document.getElementById('dbg').checked ? 'debug' : 'info';
+    chrome.storage.local.set({ logLevel: lvl }, () => alert('Saved.'));
+  });
+})();
+</script>
+</body></html>

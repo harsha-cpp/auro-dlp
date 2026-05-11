@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AURO-DLP custom ADMX template.
+
+  Drop this file plus en-US/AURO-DLP.adml into:
+    C:\Windows\PolicyDefinitions\
+  on a domain controller (or your central store), then refresh GPME.
+  Settings appear under:
+    Computer Configuration > Administrative Templates > AURO-DLP
+-->
+<policyDefinitions xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   revision="1.0"
+                   schemaVersion="1.0">
+  <policyNamespaces>
+    <target prefix="auroDlp" namespace="Hospital.Policies.AuroDlp" />
+    <using prefix="windows" namespace="Microsoft.Policies.Windows" />
+  </policyNamespaces>
+  <resources minRequiredRevision="1.0" />
+
+  <categories>
+    <category name="AuroDlpCat" displayName="$(string.AuroDlpCat)">
+      <parentCategory ref="windows:Network" />
+    </category>
+  </categories>
+
+  <policies>
+    <policy name="ServerUrl" class="Machine" displayName="$(string.ServerUrl)"
+            explainText="$(string.ServerUrl_Help)"
+            key="SOFTWARE\Policies\AURO-DLP" valueName="ServerUrl">
+      <parentCategory ref="AuroDlpCat" />
+      <supportedOn ref="windows:SUPPORTED_WindowsVista" />
+      <elements>
+        <text id="ServerUrl_Text" valueName="ServerUrl" required="true" maxLength="512" />
+      </elements>
+    </policy>
+
+    <policy name="EnrollmentToken" class="Machine" displayName="$(string.EnrollmentToken)"
+            explainText="$(string.EnrollmentToken_Help)"
+            key="SOFTWARE\Policies\AURO-DLP" valueName="EnrollmentToken">
+      <parentCategory ref="AuroDlpCat" />
+      <supportedOn ref="windows:SUPPORTED_WindowsVista" />
+      <elements>
+        <text id="EnrollmentToken_Text" valueName="EnrollmentToken" required="true" maxLength="256" />
+      </elements>
+    </policy>
+
+    <policy name="StrictMode" class="Machine" displayName="$(string.StrictMode)"
+            explainText="$(string.StrictMode_Help)"
+            key="SOFTWARE\Policies\AURO-DLP" valueName="StrictMode">
+      <parentCategory ref="AuroDlpCat" />
+      <supportedOn ref="windows:SUPPORTED_WindowsVista" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="ScreenshotProtection" class="Machine" displayName="$(string.ScreenshotProtection)"
+            explainText="$(string.ScreenshotProtection_Help)"
+            key="SOFTWARE\Policies\AURO-DLP" valueName="ScreenshotProtection">
+      <parentCategory ref="AuroDlpCat" />
+      <supportedOn ref="windows:SUPPORTED_WindowsVista" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+
+    <policy name="ExtensionId" class="Machine" displayName="$(string.ExtensionId)"
+            explainText="$(string.ExtensionId_Help)"
+            key="SOFTWARE\Policies\AURO-DLP" valueName="ExtensionId">
+      <parentCategory ref="AuroDlpCat" />
+      <supportedOn ref="windows:SUPPORTED_WindowsVista" />
+      <elements>
+        <text id="ExtensionId_Text" valueName="ExtensionId" required="true" maxLength="64" />
+      </elements>
+    </policy>
+  </policies>
+</policyDefinitions>

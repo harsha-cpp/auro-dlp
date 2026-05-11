@@ -1,0 +1,4 @@
+{
+  "extName": { "message": "AURO-DLP — Hospital Data Loss Prevention" },
+  "extDesc": { "message": "Inspects Gmail compose actions and prevents PHI/PII exfiltration. Force-installed by hospital IT." }
+}
