@@ -1,12 +1,13 @@
-import React, { useEffect, useState } from 'react';
-import { api } from '../api/client.js';
+import React, { useEffect, useState, useRef } from 'react';
+import { api, apiStream } from '../api/client.js';
+import { fmtDate } from '../lib/format.js';
 import PageHeader from '../components/PageHeader.jsx';
 import Badge from '../components/Badge.jsx';
 
 function statusVariant(status) {
   if (status === 'online') return 'allow';
   if (status === 'stale') return 'warn';
-  if (status === 'tampered') return 'block';
+  if (status === 'isolated') return 'block';
   return 'neutral';
 }
 
@@ -14,6 +15,7 @@ export default function Endpoints() {
   const [rows, setRows] = useState([]);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
+  const streamRef = useRef(null);
 
   async function load() {
     setBusy(true);
@@ -26,8 +28,20 @@ export default function Endpoints() {
 
   useEffect(() => { load(); }, []);
 
+  useEffect(() => {
+    const stream = apiStream('/stream', (type, data) => {
+      if (type === 'agent.online' || type === 'agent.offline') {
+        setRows((prev) => prev.map((r) =>
+          r.id === data.id ? { ...r, status: type === 'agent.online' ? 'online' : 'offline', lastSeen: data.lastSeen || new Date().toISOString() } : r
+        ));
+      }
+    });
+    streamRef.current = stream;
+    return () => stream.close();
+  }, []);
+
   async function isolate(id) {
-    if (!confirm('Mark this endpoint isolated? Agent will refuse outbound until cleared.')) return;
+    if (!confirm('Mark this endpoint isolated?')) return;
     try { await api(`/agents/${id}/isolate`, { method: 'POST' }); await load(); }
     catch (e) { setErr(e.error || e.message); }
   }
@@ -36,14 +50,12 @@ export default function Endpoints() {
     <>
       <PageHeader
         title="Endpoints"
-        subtitle="Enrolled agents and their last reported state"
-        actions={
-          <button onClick={load} className="px-3 py-1.5 text-sm border rounded bg-white hover:bg-slate-50">Refresh</button>
-        }
+        subtitle="Enrolled agents and their state"
+        actions={<button onClick={load} className="px-3 py-1.5 text-sm border border-slate-300 bg-white text-slate-700 rounded-md hover:bg-slate-50">Refresh</button>}
       />
-      <div className="p-8 space-y-4">
-        {err && <div className="bg-rose-50 border border-rose-200 text-rose-700 px-4 py-2 rounded">{err}</div>}
-        <div className="bg-white border rounded-lg overflow-hidden">
+      <div className="p-6 space-y-4">
+        {err && <div className="bg-rose-50 border border-rose-200 text-rose-700 px-4 py-2 rounded-md text-sm">{err}</div>}
+        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b text-left text-xs uppercase tracking-wide text-slate-500">
               <tr>
@@ -57,20 +69,20 @@ export default function Endpoints() {
                 <th className="px-4 py-2 font-medium"></th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-slate-200">
               {busy && <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-400">Loading…</td></tr>}
               {!busy && rows.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-400">No endpoints enrolled.</td></tr>}
               {rows.map((r) => (
-                <tr key={r.id} className="border-b hover:bg-slate-50">
+                <tr key={r.id} className="hover:bg-slate-50">
                   <td className="px-4 py-2 font-mono text-xs">{r.hostname}</td>
-                  <td className="px-4 py-2">{r.user || '—'}</td>
+                  <td className="px-4 py-2 text-xs">{r.user || '—'}</td>
                   <td className="px-4 py-2 text-xs text-slate-500">{r.os || '—'}</td>
                   <td className="px-4 py-2 font-mono text-xs">{r.agentVersion || '—'}</td>
                   <td className="px-4 py-2 font-mono text-xs">{r.policyVersion || '—'}</td>
-                  <td className="px-4 py-2 text-xs text-slate-500">{r.lastSeen ? new Date(r.lastSeen).toLocaleString() : 'never'}</td>
-                  <td className="px-4 py-2"><Badge variant={statusVariant(r.status)}>{r.status}</Badge></td>
+                  <td className="px-4 py-2 text-xs text-slate-500">{fmtDate(r.lastSeen)}</td>
+                  <td className="px-4 py-2"><Badge variant={statusVariant(r.status)}>{r.status}{r.isolated ? ' (isolated)' : ''}</Badge></td>
                   <td className="px-4 py-2 text-right">
-                    {r.status !== 'isolated' && (
+                    {!r.isolated && (
                       <button onClick={() => isolate(r.id)} className="text-xs text-rose-700 hover:underline">Isolate</button>
                     )}
                   </td>
