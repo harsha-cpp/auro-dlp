@@ -1,5 +1,7 @@
 (async function () {
   const $ = (id) => document.getElementById(id);
+  const DEFAULT_AGENT_REST = 'http://127.0.0.1:7443/v1';
+
   function setStatus(ok, label) {
     const s = $('status');
     s.textContent = label;
@@ -11,8 +13,7 @@
     const cfg = res?.config || {};
     $('endpoint').textContent = cfg.endpointId || '(unenrolled)';
     $('strict').textContent = cfg.strictMode ? 'on' : 'off';
-    // Health check via REST
-    const resp = await fetch((cfg.agentRest || 'https://127.0.0.1:7443/v1') + '/healthz').catch(() => null);
+    const resp = await fetch((cfg.agentRest || DEFAULT_AGENT_REST) + '/healthz').catch(() => null);
     if (resp && resp.ok) {
       const j = await resp.json();
       $('policy').textContent = j.policy || 'unknown';
@@ -24,7 +25,6 @@
   } catch (e) {
     setStatus(false, 'error');
   }
-  // Last incident from local storage
   const last = (await new Promise(r => chrome.storage.local.get(['lastIncident'], r))).lastIncident;
-  $('last').textContent = last ? new Date(last).toLocaleString() : '—';
+  $('last').textContent = last ? new Date(last).toLocaleString() : '\u2014';
 })();

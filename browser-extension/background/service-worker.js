@@ -1,37 +1,18 @@
 // AURO-DLP — MV3 service worker
-// Responsibilities:
-//  - Hold persistent WSS to local agent
-//  - Proxy inspect requests from content scripts
-//  - Cache last verdict / config
-//  - Heartbeat policy server (so dashboard knows extension is alive)
-
-const DEFAULTS = {
-  agentEndpoint: 'ws://127.0.0.1:7443/v1/stream',
-  agentRest: 'http://127.0.0.1:7443/v1',
-  policyServerUrl: 'https://policy.hospital.local:8443/api/v1',
-  endpointId: 'unknown',
-  logLevel: 'info',
-  strictMode: true,
-};
+import { DEFAULTS } from '../lib/config.js';
+import { log, setLogLevel } from '../lib/log.js';
 
 let config = { ...DEFAULTS };
 let agentSocket = null;
-let pending = new Map(); // requestId -> {resolve, reject, timer}
+let pending = new Map();
 let socketReady = null;
-
-const log = (lvl, ...args) => {
-  const order = { debug: 0, info: 1, warn: 2, error: 3 };
-  if (order[lvl] >= order[config.logLevel]) {
-    // eslint-disable-next-line no-console
-    console[lvl === 'debug' ? 'log' : lvl]('[AURO-DLP]', ...args);
-  }
-};
 
 async function loadConfig() {
   const managed = await new Promise(r => chrome.storage.managed.get(null, r));
   const local = await new Promise(r => chrome.storage.local.get(null, r));
   config = { ...DEFAULTS, ...local, ...managed };
-  log('info', 'config loaded', { strictMode: config.strictMode });
+  setLogLevel(config.logLevel || 'info');
+  log.info('config loaded', { strictMode: config.strictMode });
 }
 
 function newRequestId() {
@@ -45,17 +26,17 @@ async function ensureSocket() {
     try {
       const ws = new WebSocket(config.agentEndpoint);
       ws.onopen = () => {
-        log('info', 'agent socket open');
+        log.info('agent socket open');
         agentSocket = ws;
         resolve(ws);
       };
       ws.onerror = (e) => {
-        log('error', 'agent socket error', e?.message || e);
+        log.error('agent socket error', e?.message || e);
         socketReady = null;
         reject(new Error('agent_unreachable'));
       };
       ws.onclose = () => {
-        log('warn', 'agent socket closed');
+        log.warn('agent socket closed');
         agentSocket = null;
         socketReady = null;
       };
@@ -69,7 +50,7 @@ async function ensureSocket() {
             p.resolve(env.payload);
           }
         } catch (e) {
-          log('error', 'bad agent message', e);
+          log.error('bad agent message', e);
         }
       };
     } catch (e) {
@@ -81,7 +62,6 @@ async function ensureSocket() {
 }
 
 async function inspect(payload) {
-  // First try WSS for low latency. Fall back to REST.
   try {
     const ws = await ensureSocket();
     const requestId = newRequestId();
@@ -95,7 +75,7 @@ async function inspect(payload) {
       ws.send(JSON.stringify(envelope));
     });
   } catch (wsErr) {
-    log('warn', 'WSS failed, fallback to REST', wsErr?.message);
+    log.warn('WSS failed, fallback to REST', wsErr?.message);
     const resp = await fetch(`${config.agentRest}/inspect`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -114,7 +94,8 @@ function onUnreachableVerdict() {
       policy_version: 'fallback' };
   }
   return { verdict: 'WARN', risk: 0.5, matches: [], categories: ['SYSTEM'],
-    warning_message: 'AURO-DLP could not verify this message. Proceed with caution.', policy_version: 'fallback' };
+    warning_message: 'AURO-DLP could not verify this message. Proceed with caution.',
+    policy_version: 'fallback' };
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -122,7 +103,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     try {
       if (msg?.type === 'inspect') {
         const verdict = await inspect(msg.payload).catch(err => {
-          log('warn', 'inspect failed', err.message);
+          log.warn('inspect failed', err.message);
           return onUnreachableVerdict();
         });
         sendResponse({ ok: true, verdict });
@@ -135,6 +116,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: r.ok, body: await r.json().catch(() => ({})) });
       } else if (msg?.type === 'getConfig') {
         sendResponse({ ok: true, config });
+      } else if (msg?.type === 'telemetry') {
+        fetch(`${config.agentRest}/telemetry`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(msg.payload),
+        }).catch(() => {});
+        sendResponse({ ok: true });
+      } else if (msg?.type === 'inspectFile') {
+        sendResponse({ ok: true });
       } else {
         sendResponse({ ok: false, error: 'unknown_op' });
       }
@@ -142,13 +132,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ ok: false, error: e.message });
     }
   })();
-  return true; // async
+  return true;
 });
 
-// Heartbeat the policy server every 5 min so dashboard knows we are alive.
+// A11: Heartbeat must await loadConfig before fetching
 chrome.alarms.create('hb', { periodInMinutes: 5 });
 chrome.alarms.onAlarm.addListener(async (a) => {
   if (a.name !== 'hb') return;
+  await loadConfig();
   try {
     await fetch(`${config.policyServerUrl}/agents/extension-heartbeat`, {
       method: 'POST',
@@ -156,7 +147,7 @@ chrome.alarms.onAlarm.addListener(async (a) => {
       body: JSON.stringify({ endpoint_id: config.endpointId, ext_version: chrome.runtime.getManifest().version }),
     });
   } catch (e) {
-    log('warn', 'heartbeat failed', e.message);
+    log.warn('heartbeat failed', e.message);
   }
 });
 

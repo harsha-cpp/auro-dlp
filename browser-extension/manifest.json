@@ -2,17 +2,16 @@
   "manifest_version": 3,
   "name": "AURO-DLP — Hospital Data Loss Prevention",
   "short_name": "AURO-DLP",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Inspects Gmail compose actions and prevents PHI/PII exfiltration. Force-installed by hospital IT. Do not remove.",
-  "minimum_chrome_version": "120",
+  "minimum_chrome_version": "116",
   "default_locale": "en",
   "permissions": [
     "storage",
     "alarms",
     "scripting",
     "downloads",
-    "notifications",
-    "clipboardRead"
+    "notifications"
   ],
   "host_permissions": [
     "https://mail.google.com/*",
@@ -29,13 +28,13 @@
       "js": ["content/gmail-xhr-patch.js"],
       "run_at": "document_start",
       "world": "MAIN",
-      "all_frames": false
+      "all_frames": true
     },
     {
       "matches": ["https://mail.google.com/*"],
       "js": ["content/gmail-monitor.js"],
       "run_at": "document_idle",
-      "all_frames": false
+      "all_frames": true
     }
   ],
   "action": {
@@ -54,12 +53,7 @@
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-  "web_accessible_resources": [
-    {
-      "resources": ["content/warning-modal.css", "content/warning-modal.html"],
-      "matches": ["https://mail.google.com/*"]
-    }
-  ],
+  "web_accessible_resources": [],
   "storage": {
     "managed_schema": "managed_schema.json"
   },
