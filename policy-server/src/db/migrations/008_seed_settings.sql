@@ -1,0 +1,1 @@
+INSERT OR IGNORE INTO settings (id) VALUES (1)

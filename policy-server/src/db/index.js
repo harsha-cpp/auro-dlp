@@ -1,9 +1,12 @@
 import Database from 'better-sqlite3';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+const AUDIT_HMAC_KEY = process.env.AUDIT_HMAC_KEY || crypto.randomBytes(32).toString('hex');
 
 let db;
 
@@ -95,7 +98,42 @@ export function initDb() {
 }
 
 export function audit(actor, action, target, detail) {
-  getDb()
-    .prepare('INSERT INTO audit (actor, action, target, detail) VALUES (?, ?, ?, ?)')
-    .run(actor, action, target || null, detail ? JSON.stringify(detail) : null);
+  const d = getDb();
+  const prevHash = d.prepare('SELECT hmac FROM audit ORDER BY id DESC LIMIT 1').get()?.hmac || '';
+  const ts = Date.now();
+  const detailStr = detail ? JSON.stringify(detail) : null;
+  const payload = JSON.stringify({ actor, action, target, detail, ts, prev_hash: prevHash });
+  const hmac = crypto.createHmac('sha256', AUDIT_HMAC_KEY).update(payload).digest('hex');
+  try {
+    d.prepare(
+      'INSERT INTO audit (actor, action, target, detail, ts, prev_hash, hmac) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(actor, action, target || null, detailStr, new Date(ts).toISOString(), prevHash, hmac);
+  } catch {
+    d.prepare(
+      'INSERT INTO audit (actor, action, target, detail) VALUES (?, ?, ?, ?)'
+    ).run(actor, action, target || null, detailStr);
+  }
 }
+
+export function verifyChain(rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row.hmac) return false;
+    const expectedPrev = i === 0 ? '' : rows[i - 1].hmac;
+    if (row.prev_hash !== expectedPrev) return false;
+    const detail = row.detail ? JSON.parse(row.detail) : row.detail;
+    const payload = JSON.stringify({
+      actor: row.actor,
+      action: row.action,
+      target: row.target,
+      detail,
+      ts: new Date(row.ts).getTime(),
+      prev_hash: row.prev_hash,
+    });
+    const computed = crypto.createHmac('sha256', AUDIT_HMAC_KEY).update(payload).digest('hex');
+    if (computed !== row.hmac) return false;
+  }
+  return true;
+}
+
+export { AUDIT_HMAC_KEY };

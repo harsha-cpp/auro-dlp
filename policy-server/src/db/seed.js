@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import bcrypt from 'bcrypt';
-import { readFileSync, existsSync } from 'node:fs';
+import crypto from 'node:crypto';
+import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getDb } from './index.js';
 import { signPolicy } from '../services/signing.js';
@@ -8,41 +9,47 @@ import { signPolicy } from '../services/signing.js';
 export async function seedDefaults() {
   const db = getDb();
 
-  // Default admin
   const u = db.prepare('SELECT id FROM users WHERE email = ?').get('admin@hospital.local');
   if (!u) {
-    const hash = await bcrypt.hash('changeme-on-first-login', 12);
-    db.prepare('INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)')
-      .run('admin@hospital.local', hash, 'admin');
-    console.log('[seed] created admin@hospital.local / changeme-on-first-login');
+    const password = crypto.randomBytes(12).toString('base64url').slice(0, 16);
+    const hash = await bcrypt.hash(password, 12);
+    try {
+      db.prepare('INSERT INTO users (email, password_hash, role, must_change_password) VALUES (?, ?, ?, 1)')
+        .run('admin@hospital.local', hash, 'admin');
+    } catch {
+      db.prepare('INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)')
+        .run('admin@hospital.local', hash, 'admin');
+    }
+    console.log('');
+    console.log('╔══════════════════════════════════════════════════════════════╗');
+    console.log('║  ADMIN CREDENTIALS (shown only once — save securely!)       ║');
+    console.log(`║  Email:    admin@hospital.local                              ║`);
+    console.log(`║  Password: ${password}                              ║`);
+    console.log('║  You MUST change this password on first login.              ║');
+    console.log('╚══════════════════════════════════════════════════════════════╝');
+    console.log('');
+
+    const credsPath = join(process.cwd(), 'SEEDED_CREDENTIALS.txt');
+    const credsContent = `AURO-DLP SEED CREDENTIALS — change immediately after first login.
+
+URL:      http://localhost:5173
+Email:    admin@hospital.local
+Password: ${password}
+Generated: ${new Date().toISOString()}
+`;
+    writeFileSync(credsPath, credsContent, 'utf8');
+    console.log(`[seed] credentials written to ${credsPath}`);
   }
 
-  // Active policy bundle (load default from agent configs if available)
   const active = db.prepare('SELECT version FROM policies WHERE active = 1').get();
   if (!active) {
-    let yaml = `version: "default-1.0"
-warn_threshold: 0.30
-block_threshold: 0.65
-hard_block_rules:
-  - IN.AADHAAR
-hard_block_categories: []
-messages:
-  WARN:  "This message contains content that looks like sensitive patient data. Send only if absolutely necessary."
-  BLOCK: "This message contains protected patient information. Sending externally is blocked by hospital policy."
-  HARD:  "Aadhaar / regulated identifier detected — this transmission is blocked and cannot be overridden by you."
-override_allowed:
-  WARN: true
-  BLOCK: true
-rule_weights: {}
-`;
+    let yaml = `version: "default-1.0"\nwarn_threshold: 0.30\nblock_threshold: 0.65\nhard_block_rules:\n  - IN.AADHAAR\nhard_block_categories: []\nmessages:\n  WARN:  "This message contains content that looks like sensitive patient data."\n  BLOCK: "This message contains protected patient information. Sending externally is blocked."\n  HARD:  "Aadhaar / regulated identifier detected — blocked."\noverride_allowed:\n  WARN: true\n  BLOCK: true\nrule_weights: {}\n`;
     const repoPolicy = join(process.cwd(), '..', 'endpoint-agent', 'configs', 'policy.yaml');
     if (existsSync(repoPolicy)) {
       yaml = readFileSync(repoPolicy, 'utf8');
     }
     let sig = '';
-    try { sig = signPolicy(yaml); } catch (e) {
-      console.warn('[seed] signing key missing; storing unsigned policy. Run `npm run gen-keys` then re-seed.');
-    }
+    try { sig = signPolicy(yaml); } catch { /* no key yet */ }
     db.prepare('INSERT INTO policies (version, yaml, signature, active) VALUES (?, ?, ?, 1)')
       .run('default-1.0', yaml, sig);
     console.log('[seed] activated default policy');
