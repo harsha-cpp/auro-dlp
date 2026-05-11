@@ -10,6 +10,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST="$ROOT/dist"
 TARGET="${1:-linux}"
 
+sha256() { command -v sha256sum &>/dev/null && sha256sum "$1" || shasum -a 256 "$1"; }
+
 mkdir -p "$DIST"
 
 build_agent_linux() {
@@ -18,7 +20,7 @@ build_agent_linux() {
     GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
       go build -trimpath -ldflags='-s -w -X main.version=1.0.0' \
       -o "$DIST/auro-agent-linux-amd64" ./cmd/auro-agent )
-  sha256sum "$DIST/auro-agent-linux-amd64"
+  sha256 "$DIST/auro-agent-linux-amd64"
 }
 
 build_agent_windows() {
@@ -27,7 +29,7 @@ build_agent_windows() {
     GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
       go build -trimpath -ldflags='-s -w -X main.version=1.0.0' \
       -o "$DIST/auro-agent.exe" ./cmd/auro-agent )
-  sha256sum "$DIST/auro-agent.exe"
+  sha256 "$DIST/auro-agent.exe"
 }
 
 build_server() {
@@ -47,7 +49,7 @@ build_extension() {
   echo "== Packaging browser extension…"
   ( cd "$ROOT/browser-extension" && \
       zip -r "$DIST/auro-dlp-extension.zip" . -x '*.git*' 'node_modules/*' )
-  sha256sum "$DIST/auro-dlp-extension.zip"
+  sha256 "$DIST/auro-dlp-extension.zip"
 }
 
 case "$TARGET" in

@@ -1,0 +1,2 @@
+This directory holds model files downloaded by scripts/fetch-model.sh or scripts/mock-model.sh.
+model.onnx is gitignored (too large). Other files are committed by mock-model.sh for dev.
