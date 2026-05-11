@@ -16,16 +16,17 @@ func defaultRules() []*Rule {
 		// India-specific
 		{ID: "IN.AADHAAR", Category: "PII-IN", Pattern: `\b[2-9]\d{3}\s?\d{4}\s?\d{4}\b`, Weight: 2.0, Validator: "verhoeff"},
 		{ID: "IN.PAN", Category: "PII-IN", Pattern: `\b[A-Z]{5}[0-9]{4}[A-Z]\b`, Weight: 1.5, Validator: "pan"},
-		{ID: "IN.MOBILE", Category: "PII", Pattern: `(?:\+?91[\s-]?)?[6-9]\d{9}`, Weight: 0.7},
+		{ID: "IN.MOBILE", Category: "PII", Pattern: `(?:^|[^\d])(?:\+?91[\s-]?)?([6-9]\d{9})(?:[^\d]|$)`, Weight: 1.0},
 		{ID: "IN.ABHA", Category: "PII-IN", Pattern: `\b\d{2}-\d{4}-\d{4}-\d{4}\b`, Weight: 1.5},
 
 		// Medical
-		{ID: "MED.MRN", Category: "PHI", Pattern: `(?i)\b(?:MRN|MR#|Med\.?\s?Rec)[\s:#-]*([A-Z0-9-]{6,20})\b`, Weight: 1.5},
+		{ID: "PHI.MRN", Category: "PHI", Pattern: `(?i)\b(?:MRN|MR#|Med\.?\s?Rec)[\s:#-]*([A-Z0-9-]{6,20})\b`, Weight: 1.5},
 		{ID: "MED.ICD10", Category: "PHI", Pattern: `\b[A-TV-Z][0-9][0-9AB](?:\.[0-9A-Z]{1,4})?\b`, Weight: 0.8},
 		{ID: "MED.RX", Category: "PHI", Pattern: `(?i)\b(?:tab|cap|syr|inj)\.?\s+[A-Z][a-z]+\s+\d+\s?(?:mg|mcg|ml|iu)\b`, Weight: 1.2},
 		{ID: "MED.LAB", Category: "PHI", Pattern: `(?i)\b(?:CBC|HbA1c|TSH|LFT|KFT|ECG|HIV|HBsAg|HCV|RT-PCR|Troponin|Creatinine|Hemoglobin|WBC)\b`, Weight: 0.6},
 		{ID: "MED.RAD", Category: "PHI", Pattern: `(?i)\b(?:MRI|CT scan|X-?ray|USG|Mammogram|PET-?CT|Ultrasound)\b`, Weight: 0.6},
 		{ID: "MED.DIAG", Category: "PHI", Pattern: `(?i)\b(?:diagnosis|impression|finding|provisional)\s*:`, Weight: 0.7},
+		{ID: "PHI.CLINICAL", Category: "PHI", Pattern: `(?i)\b(?:SOB|COPD|hypertension|diabetes|antibiotic|antibiotics|biopsy|MRI|CT\s|chemotherapy|surgery|ICU|emergency room|diagnosis|prescription|symptoms|pain|DM2|HTN|CKD|fever|निदान|उपचार|मरीज़|रोगी|बुखार|संक्रमण)\b`, Weight: 1.0},
 
 		// Insurance / financial
 		{ID: "INS.POLICY", Category: "INS", Pattern: `(?i)\b(?:POL|INS|PLCY)[-#:]?\s*([A-Z0-9]{6,16})\b`, Weight: 1.0},
@@ -61,5 +62,7 @@ func defaultDictionary() []string {
 		"prescription", "lab report", "radiology report", "consultation",
 		// PHI markers
 		"patient name", "DOB", "date of birth", "admission date", "discharge date",
+		// Hindi / Devanagari medical terms
+		"निदान", "उपचार", "दवा", "मरीज़", "अस्पताल", "रोगी", "बुखार", "संक्रमण", "आधार", "पैन",
 	}
 }

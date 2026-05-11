@@ -73,7 +73,7 @@ func defaultBundle() *Bundle {
 		WarnAt:  0.30,
 		BlockAt: 0.65,
 		HardBlock: []string{
-			"IN.AADHAAR",
+			"IN.AADHAAR", "IN.PAN", "FIN.CCN", "INT.SSN", "IN.ABHA", "PHI.MRN",
 		},
 		HardBlockCats: []string{},
 		Messages: map[string]string{

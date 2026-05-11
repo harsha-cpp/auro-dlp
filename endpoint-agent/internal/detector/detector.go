@@ -7,6 +7,7 @@ package detector
 
 import (
 	"errors"
+	"math"
 	"os"
 	"regexp"
 	"sort"
@@ -51,19 +52,31 @@ type ruleFile struct {
 	Dictionaries []string `yaml:"dictionaries"`
 }
 
+// Scorer is the interface for ML-based risk scoring. If nil or returning error,
+// the ML signal is treated as 0.
+type Scorer interface {
+	Score(text string) (riskScore float64, labels []string, err error)
+}
+
 // Detector is safe for concurrent use.
 type Detector struct {
 	mu     sync.RWMutex
 	rules  []*Rule
 	dict   []string
 	dictRE *regexp.Regexp
+	scorer Scorer
 }
 
 // New loads patterns from `path`. If path is empty or missing, the built-in
 // default catalogue is used. The default ships every binary so the agent is
 // useful immediately, with the YAML file able to extend or override it.
-func New(path string) (*Detector, error) {
+// An optional Scorer can be provided for ML inference; pass nil to use the
+// built-in lightweight classifier as fallback.
+func New(path string, opts ...func(*Detector)) (*Detector, error) {
 	d := &Detector{}
+	for _, o := range opts {
+		o(d)
+	}
 	if err := d.loadDefaults(); err != nil {
 		return nil, err
 	}
@@ -73,6 +86,11 @@ func New(path string) (*Detector, error) {
 		}
 	}
 	return d, nil
+}
+
+// WithScorer returns an option that sets the ML scorer on the Detector.
+func WithScorer(s Scorer) func(*Detector) {
+	return func(d *Detector) { d.scorer = s }
 }
 
 func (d *Detector) loadDefaults() error {
@@ -179,6 +197,10 @@ func (d *Detector) InspectText(text string) Result {
 			if r.validate != nil && !r.validate(s) {
 				continue
 			}
+			// ICD10 post-filter: only count if a medical context word is within 50 chars.
+			if r.ID == "MED.ICD10" && !hasMedContextNear(text, p[0], p[1], 50) {
+				continue
+			}
 			valid++
 			if first == -1 {
 				first = p[0]
@@ -204,18 +226,34 @@ func (d *Detector) InspectText(text string) Result {
 		dictHits = len(d.dictRE.FindAllString(text, -1))
 	}
 
-	// 3. Lightweight ML signal — placeholder logistic on engineered features.
-	ml := mlScore(text, regexSignal, dictHits)
-
-	// Saturating sum to [0,1].
-	regexNorm := saturate(regexSignal / 6.0) // ~6 weighted hits = full signal
-	dictNorm := saturate(float64(dictHits) / 8.0)
-	context := dictNorm * 0.20
-
-	risk := 0.50*regexNorm + 0.30*ml + 0.20*dictNorm + context
-	if risk > 1 {
-		risk = 1
+	// 3. ML signal: use external scorer if available, else built-in heuristic.
+	var ml float64
+	if d.scorer != nil {
+		if score, _, err := d.scorer.Score(text); err == nil {
+			ml = score
+		}
+	} else {
+		ml = mlScore(text, regexSignal, dictHits)
 	}
+
+	// MAX-of-signals scoring: take the highest of regex, ML, and
+	// dictionary (capped at 0.6 since dict alone is noisy).
+	regexNorm := saturate(regexSignal / 6.0)
+	dictNorm := saturate(float64(dictHits) / 8.0)
+
+	// Single-hit floor: any single regex hit with weight >= 1.0 should at
+	// least reach WARN threshold so isolated mobile/MRN/etc. are not ALLOW.
+	if regexSignal > 0 && len(matches) > 0 {
+		for _, m := range matches {
+			rw := ruleWeight(d.rules, m.RuleID)
+			if rw >= 1.0 {
+				regexNorm = math.Max(regexNorm, 0.32)
+				break
+			}
+		}
+	}
+
+	risk := math.Max(math.Max(regexNorm, ml), dictNorm*0.6)
 
 	categories := make([]string, 0, len(cats))
 	for c := range cats {
@@ -230,10 +268,11 @@ func (d *Detector) InspectText(text string) Result {
 		MLSignal:       ml,
 		Risk:           risk,
 		Stats: map[string]float64{
-			"regex_signal":  regexSignal,
-			"regex_norm":    regexNorm,
-			"text_len":      float64(len(text)),
-			"context_bonus": context,
+			"regex_signal": regexSignal,
+			"regex_norm":   regexNorm,
+			"dict_norm":    dictNorm,
+			"ml_signal":    ml,
+			"text_len":     float64(len(text)),
 		},
 	}
 }
@@ -246,4 +285,38 @@ func saturate(x float64) float64 {
 		return 1
 	}
 	return x
+}
+
+var medContextWords = []string{
+	"diagnosis", "patient", "clinical", "medical", "hospital",
+	"treatment", "prescription", "lab", "report", "discharge",
+	"admission", "doctor", "dr.", "opd", "ipd", "mrn", "bht",
+	"icd", "procedure", "surgery", "condition",
+}
+
+func hasMedContextNear(text string, start, end, window int) bool {
+	lo := start - window
+	if lo < 0 {
+		lo = 0
+	}
+	hi := end + window
+	if hi > len(text) {
+		hi = len(text)
+	}
+	snippet := strings.ToLower(text[lo:hi])
+	for _, w := range medContextWords {
+		if strings.Contains(snippet, w) {
+			return true
+		}
+	}
+	return false
+}
+
+func ruleWeight(rules []*Rule, id string) float64 {
+	for _, r := range rules {
+		if r.ID == id {
+			return r.Weight
+		}
+	}
+	return 0
 }

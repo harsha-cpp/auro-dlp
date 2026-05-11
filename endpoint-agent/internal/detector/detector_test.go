@@ -60,7 +60,7 @@ func TestInspectMRNAndAadhaar(t *testing.T) {
 	for _, m := range r.Matches {
 		gotIDs[m.RuleID] = m.Count
 	}
-	for _, must := range []string{"MED.MRN", "IN.AADHAAR", "MED.LAB", "MED.DIAG"} {
+	for _, must := range []string{"PHI.MRN", "IN.AADHAAR", "MED.LAB", "MED.DIAG"} {
 		if gotIDs[must] == 0 {
 			t.Errorf("expected rule %s to fire; got %v", must, gotIDs)
 		}
