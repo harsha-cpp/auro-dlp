@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
-import { initDb } from './db/index.js';
+import { migrateDb } from './db/migrate.js';
 import authRoutes from './routes/auth.js';
 import policyRoutes from './routes/policies.js';
 import incidentRoutes from './routes/incidents.js';
@@ -18,7 +18,7 @@ import { getSiemStatus } from './services/siem.js';
 const app = express();
 const port = Number(process.env.PORT || 8443);
 
-initDb();
+await migrateDb();
 
 const defaultOrigins = 'http://localhost:5173,http://127.0.0.1:5173';
 const origins = (process.env.ALLOWED_ORIGINS || (process.env.NODE_ENV === 'production' ? '' : defaultOrigins))

@@ -1,10 +1,18 @@
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth.js';
+import jwt from 'jsonwebtoken';
+import { requireAuth, JWT_SECRET } from '../middleware/auth.js';
 import { eventBus } from '../services/events.js';
 
 const r = Router();
 
-r.get('/', requireAuth, (req, res) => {
+function authFromQuery(req, _res, next) {
+  if (!req.headers.authorization && req.query.token) {
+    req.headers.authorization = `Bearer ${req.query.token}`;
+  }
+  next();
+}
+
+r.get('/', authFromQuery, requireAuth, (req, res) => {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',

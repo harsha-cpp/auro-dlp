@@ -48,14 +48,15 @@ export async function api(path, opts = {}) {
   const t = getToken();
   if (t) headers.authorization = `Bearer ${t}`;
 
+  if (!t && path !== '/auth/login') return null;
+
   let res = await fetch(`/api/v1${path}`, {
     ...opts,
     headers,
     body: opts.body && typeof opts.body !== 'string' ? JSON.stringify(opts.body) : opts.body,
   });
 
-  // Auto-refresh on 401
-  if (res.status === 401 && t) {
+  if (res.status === 401) {
     try {
       const newToken = await refreshToken();
       headers.authorization = `Bearer ${newToken}`;
@@ -65,16 +66,10 @@ export async function api(path, opts = {}) {
         body: opts.body && typeof opts.body !== 'string' ? JSON.stringify(opts.body) : opts.body,
       });
     } catch {
-      const err = { error: 'Session expired', status: 401 };
-      throw err;
+      clearToken();
+      emitAuthFailure();
+      throw { error: 'Session expired', status: 401 };
     }
-  }
-
-  if (res.status === 401) {
-    clearToken();
-    emitAuthFailure();
-    const err = { error: 'Unauthorized', status: 401 };
-    throw err;
   }
 
   if (!res.ok) {
@@ -86,9 +81,11 @@ export async function api(path, opts = {}) {
   return res.json();
 }
 
-/** SSE helper. Returns a close() function. */
+/** SSE helper. Returns a close() function. Passes token as query param since EventSource can't send custom headers. */
 export function apiStream(path, onEvent) {
-  const url = `/api/v1${path}`;
+  const token = getToken();
+  if (!token) return { close() { /* no-op — not authenticated */ } };
+  const url = `/api/v1${path}?token=${encodeURIComponent(token)}`;
   let es = null;
   let closed = false;
   let onOpen = null;
@@ -115,8 +112,7 @@ export function apiStream(path, onEvent) {
 
   return {
     close() { closed = true; if (es) es.close(); },
-    set onopen(fn) { onOpen = fn; if (es) es.onopen = () => fn(); },
+    set onopen(fn) { onOpen = fn; },
     set onerror(fn) { onError = fn; },
-    get connected() { return es?.readyState === EventSource.OPEN; },
   };
 }

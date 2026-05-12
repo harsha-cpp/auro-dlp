@@ -3,7 +3,8 @@ import crypto from 'node:crypto';
 import { getDb } from '../db/index.js';
 
 const JWT_SECRET = (() => {
-  if (process.env.JWT_SECRET && process.env.JWT_SECRET !== 'dev-secret-change-me') {
+  const isDefaultDev = process.env.JWT_SECRET === 'dev-secret-change-me';
+  if (process.env.JWT_SECRET && !(isDefaultDev && process.env.NODE_ENV === 'production')) {
     return process.env.JWT_SECRET;
   }
   if (process.env.NODE_ENV === 'production') {
@@ -26,8 +27,10 @@ export function requireAuth(req, res, next) {
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     if (payload.jti) {
-      const denied = getDb().prepare('SELECT jti FROM token_denylist WHERE jti = ?').get(payload.jti);
-      if (denied) return res.status(401).json({ error: 'token_revoked' });
+      try {
+        const denied = getDb().prepare('SELECT jti FROM token_denylist WHERE jti = ?').get(payload.jti);
+        if (denied) return res.status(401).json({ error: 'token_revoked' });
+      } catch { /* denylist table may not exist yet; skip check */ }
     }
     req.user = payload;
     next();

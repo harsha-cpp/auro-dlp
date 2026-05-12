@@ -28,3 +28,4 @@ policy-server/test-migrate.sqlite-wal
 policy-server/.env
 policy-server/SEEDED_CREDENTIALS.txt
 policy-server/models/auro-pii-indicv2/0.1.0/model.onnx
+policy-server/models/

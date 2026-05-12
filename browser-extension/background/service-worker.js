@@ -62,29 +62,13 @@ async function ensureSocket() {
 }
 
 async function inspect(payload) {
-  try {
-    const ws = await ensureSocket();
-    const requestId = newRequestId();
-    const envelope = { request_id: requestId, op: 'inspect', payload };
-    return await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        pending.delete(requestId);
-        reject(new Error('agent_timeout'));
-      }, 8000);
-      pending.set(requestId, { resolve, reject, timer });
-      ws.send(JSON.stringify(envelope));
-    });
-  } catch (wsErr) {
-    log.warn('WSS failed, fallback to REST', wsErr?.message);
-    const resp = await fetch(`${config.agentRest}/inspect`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-      credentials: 'include',
-    });
-    if (!resp.ok) throw new Error(`agent_http_${resp.status}`);
-    return await resp.json();
-  }
+  const resp = await fetch(`${config.agentRest}/inspect`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) throw new Error(`agent_http_${resp.status}`);
+  return await resp.json();
 }
 
 function onUnreachableVerdict() {

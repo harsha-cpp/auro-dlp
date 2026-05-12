@@ -8,8 +8,9 @@ import { requireAuth, JWT_SECRET, REFRESH_SECRET } from '../middleware/auth.js';
 
 const r = Router();
 
-const loginLimiter = rateLimit({ windowMs: 60_000, max: 5, standardHeaders: true, legacyHeaders: false });
-const authLimiter = rateLimit({ windowMs: 60_000, max: 10, standardHeaders: true, legacyHeaders: false });
+const isDev = process.env.NODE_ENV !== 'production';
+const loginLimiter = rateLimit({ windowMs: 30_000, max: isDev ? 100 : 5, standardHeaders: true, legacyHeaders: false });
+const authLimiter = rateLimit({ windowMs: 30_000, max: isDev ? 200 : 10, standardHeaders: true, legacyHeaders: false });
 
 r.post('/login', loginLimiter, async (req, res) => {
   const { email, password } = req.body || {};

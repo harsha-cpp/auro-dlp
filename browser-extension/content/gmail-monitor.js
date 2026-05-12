@@ -212,15 +212,17 @@
     e.stopImmediatePropagation();
     e.preventDefault();
 
+    const subject = getSubject(compose);
+    const body = getBody(compose);
     const snapshot = {
       source: 'gmail.compose',
       kind: 'send',
       url: location.href,
-      content: getBody(compose),
+      content: [subject, body].filter(Boolean).join('\n\n'),
       recipients: getRecipients(compose),
       files: getAttachments(compose).map(a => ({ name: a.name })),
       context: {
-        subject: getSubject(compose),
+        subject,
         paste_count: STATE.pasteBuffer.length,
       },
     };

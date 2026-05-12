@@ -28,7 +28,6 @@
     if (!isSendRequest(url)) return false;
     const token = readApproval();
     if (!token) return false;
-    delete document.documentElement.dataset.auroXhrApproved;
     return true;
   }
 

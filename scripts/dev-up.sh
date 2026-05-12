@@ -48,7 +48,7 @@ DB_PATH=./auro.dev.sqlite
 SIGNING_KEY_PATH=./keys/signing.key
 ALLOWED_ORIGINS=http://localhost:5173
 EOF
-  node src/db/seed.js 2>/dev/null || true
+  node src/db/migrate.js
   node src/server.js &
   echo $!
 ) &

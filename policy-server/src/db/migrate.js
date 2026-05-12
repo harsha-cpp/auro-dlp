@@ -8,7 +8,7 @@ import { seedDefaults } from './seed.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const migrationsDir = join(__dirname, 'migrations');
 
-function runMigrations() {
+export function runMigrations() {
   const db = getDb();
 
   db.exec(`CREATE TABLE IF NOT EXISTS schema_version (
@@ -53,7 +53,13 @@ function runMigrations() {
   }
 }
 
-initDb();
-runMigrations();
-await seedDefaults();
-console.log('[migrate] done');
+export async function migrateDb() {
+  initDb();
+  runMigrations();
+  await seedDefaults();
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  await migrateDb();
+  console.log('[migrate] done');
+}
